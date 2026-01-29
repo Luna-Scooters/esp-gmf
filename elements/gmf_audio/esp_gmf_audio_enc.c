@@ -310,7 +310,12 @@ static esp_gmf_job_err_t gmf_audio_enc_acquire_in(esp_gmf_audio_enc_t *audio_enc
         ESP_GMF_PORT_ACQUIRE_IN_CHECK(TAG, load_ret, job_ret, return job_ret);
         int cache_size = 0;
         esp_gmf_cache_get_cached_size(audio_enc->cached_payload, &cache_size);
-        audio_enc->cur_pts = audio_enc->origin_in_load->pts - GMF_AUDIO_CALC_PTS(cache_size, audio_enc->parent.snd_info.sample_rates, audio_enc->parent.snd_info.channels, audio_enc->parent.snd_info.bits);
+        uint32_t cache_dur = GMF_AUDIO_CALC_PTS(cache_size, audio_enc->parent.snd_info.sample_rates, audio_enc->parent.snd_info.channels, audio_enc->parent.snd_info.bits);
+        if (audio_enc->origin_in_load->pts > cache_dur) {
+            audio_enc->cur_pts = audio_enc->origin_in_load->pts - cache_dur;
+        } else {
+            audio_enc->cur_pts = 0;
+        }
         esp_gmf_cache_load(audio_enc->cached_payload, audio_enc->origin_in_load);
     }
     esp_gmf_err_t ret = esp_gmf_cache_acquire(audio_enc->cached_payload, ESP_GMF_ELEMENT_GET(audio_enc)->in_attr.data_size, in_load);
