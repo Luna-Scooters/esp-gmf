@@ -879,7 +879,7 @@ esp_capture_err_t esp_capture_sink_enable_muxer(esp_capture_sink_handle_t h, boo
         if (path->muxer == NULL) {
             break;
         }
-        capture_muxer_enable(path->muxer, enable);
+        ret = capture_muxer_enable(path->muxer, enable);
         if (capture_path_is_running(path)) {
             if (enable) {
                 ret = capture_muxer_prepare(path->muxer);
