@@ -59,6 +59,9 @@ struct capture_muxer_path_t {
     msg_q_handle_t              muxer_q;
     esp_muxer_handle_t          muxer;
     esp_gmf_data_queue_t       *muxer_data_q;
+    // LUNA PATCH: Private video frame copy for muxer
+    uint8_t                    *video_copy;
+    int                         video_copy_size;
 };
 
 static esp_muxer_audio_codec_t get_muxer_acodec(esp_capture_format_id_t codec_type)
@@ -241,14 +244,27 @@ static void muxer_thread(void *arg)
                 capture_path_release_share(muxer_path->path, &frame);
             } break;
             case ESP_CAPTURE_STREAM_TYPE_VIDEO: {
+                // LUNA PATCH: Muxer may rewrite packet data in place (MP4 replaces H264 start codes with NAL lengths)
+                // Mux a private copy so other users of the shared frame (sink stream) still get the original data
+                if (muxer_path->video_copy_size < frame.size) {
+                    uint8_t *video_copy = (uint8_t *)capture_realloc(muxer_path->video_copy, frame.size);
+                    if (video_copy == NULL) {
+                        ESP_LOGE(TAG, "No memory to copy video frame size %d", frame.size);
+                        capture_path_release_share(muxer_path->path, &frame);
+                        break;
+                    }
+                    muxer_path->video_copy = video_copy;
+                    muxer_path->video_copy_size = frame.size;
+                }
+                memcpy(muxer_path->video_copy, frame.data, frame.size);
+                capture_path_release_share(muxer_path->path, &frame);
                 esp_muxer_video_packet_t video_packet = {
                     .pts = frame.pts,
-                    .data = frame.data,
+                    .data = muxer_path->video_copy,
                     .len = frame.size,
                 };
                 muxer_path->muxer_cur_pts = frame.pts;
                 ret = esp_muxer_add_video_packet(muxer_path->muxer, muxer_path->video_stream_idx, &video_packet);
-                capture_path_release_share(muxer_path->path, &frame);
             } break;
             default:
                 break;
@@ -512,6 +528,7 @@ esp_capture_err_t capture_muxer_close(capture_muxer_path_handle_t muxer_path)
         muxer_path->event_grp = NULL;
     }
     CAPTURE_SAFE_FREE(muxer_path->muxer_cfg.base_config);
+    CAPTURE_SAFE_FREE(muxer_path->video_copy);
     capture_free(muxer_path);
     return ESP_CAPTURE_ERR_OK;
 }
